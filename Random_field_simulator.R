@@ -47,7 +47,8 @@
       # INLA's parametrization
       # log-parametrization of covariance parameters. In GpGp's parametrization, log(\sigma), log(\alpha), log(\sigma \tau)
 
-fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 10, convergence_break = c(1.1, 1.1), 
+fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field, 
+                            n_iterations = 40000, n_chains = 3, m = 10, convergence_break = c(1.1, 1.1), 
                             pc_prior_range = NULL, pc_prior_sd = NULL,
                             n_cores = NULL, n_join = 800, field_thinning = .05, 
                             burn_in = .5, n_delayed_acceptance = NULL
@@ -65,13 +66,15 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
   # cleaning RAM
   gc()
   # ordering locations using max-min ordering. according to https://arxiv.org/pdf/1609.05372.pdf this works better
-  locs_sample = GpGp::order_maxmin(benchmark$locs)
-  locs = benchmark$locs[locs_sample,]
-  observed_field = c(benchmark$noisy_field)[locs_sample]
+  locs_sample_obs = GpGp::order_maxmin(observed_locs)
+  locs_sample_pred = GpGp::order_maxmin(predicted_locs)
+  locs = rbind(observed_locs[locs_sample_obs,], predicted_locs[locs_sample_pred,])
+  observed_field = c(observed_field)[locs_sample_obs]
   # just creating a variable of the umber of observations
   n_obs = length(observed_field)
+  n_simulated = nrow(locs)
   # burn-in proportion, when  i iterations are done the (1 - burn_in) * i  last iterations are used
-  if(is.null(n_delayed_acceptance)) n_delayed_acceptance = round(nrow(locs)/5) #number of observations used to "taste" Vecchia approximation
+  if(is.null(n_delayed_acceptance)) n_delayed_acceptance = round(n_simulated/5) #number of observations used to "taste" Vecchia approximation
   # Computation parameters
   if(is.null(n_cores)) n_cores = n_chains #number of cores for parallel computing of chains
   # PC prior parameters
@@ -142,7 +145,7 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
     chains[[i]]$records$params$log_noise_variance = rep(0, n_iterations)
     chains[[i]]$records$params$log_range = rep(0, n_iterations)
     #matrix instead of vector since there is n field parameters = better thin the field
-    chains[[i]]$records$params$field = matrix(0, nrow = round(n_iterations*field_thinning), ncol = n_obs)
+    chains[[i]]$records$params$field = matrix(0, nrow = round(n_iterations*field_thinning), ncol = n_simulated)
   }
   
   #######################################
@@ -168,10 +171,10 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
       {
         color_idx = which(vecchia_approx$coloring == color)
         #see Rue and Held's manual about GMRF : conditional distribution
-        gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)
+        gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)*(color_idx<=n_obs)
         gmrf_cond_mean = chain$params$beta_0 - (gmrf_cond_precision^(-1))*
           (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(field[-color_idx]-chain$params$beta_0)))/exp(chain$params$log_scale)
-           -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0))
+           -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)*(color_idx<=n_obs))
         field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
       }
     }
@@ -235,7 +238,7 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
       records$params$log_noise_variance = rep(0, n_iterations_update)
       records$params$log_range = rep(0, n_iterations_update)
       #matrix instead of vector since there is n field parameters = better thin the field
-      records$params$field = matrix(0, nrow = sum(round(seq(iter_begin, iter_begin+n_iterations_update-1)*field_thinning) == (seq(iter_begin, iter_begin+n_iterations_update-1)*field_thinning)), ncol = n_obs)
+      records$params$field = matrix(0, nrow = sum(round(seq(iter_begin, iter_begin+n_iterations_update-1)*field_thinning) == (seq(iter_begin, iter_begin+n_iterations_update-1)*field_thinning)), ncol = n_simulated)
       
       # acceptance results, used to tune proposal kernels
       records$acceptance$covariance_parameters = matrix(0, n_iterations_update, 2)
@@ -336,8 +339,8 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
         innovation = rnorm(1, 0, chain$transition_kernel_sd$log_noise_variance)
         # acceptance step
           #ll ratio : observed signal ~  n_obs(mu = simulated signal, sigma = noise variance * In)
-        if(sum(dnorm(x = observed_field, mean = chain$params$field, sd = exp(0.5*(chain$params$log_noise_variance + innovation)), log = T)-
-               dnorm(x = observed_field, mean = chain$params$field, sd = exp(0.5*chain$params$log_noise_variance)               , log = T))
+        if(sum(dnorm(x = observed_field, mean = chain$params$field[seq(n_obs)], sd = exp(0.5*(chain$params$log_noise_variance + innovation)), log = T)-
+               dnorm(x = observed_field, mean = chain$params$field[seq(n_obs)], sd = exp(0.5*chain$params$log_noise_variance)               , log = T))
            >log(runif(1)))
         {
           records$acceptance$log_noise_variance[iter] = 1
@@ -351,11 +354,11 @@ fit_mcmc_Vecchia = function(benchmark, n_iterations = 40000, n_chains = 3, m = 1
         {
           color_idx = which(vecchia_approx$coloring == color)
           #see Rue and Held's manual about GMRF : conditional distribution
-          gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)
+          gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)*(color_idx<=n_obs)
           gmrf_cond_mean = chain$params$beta_0 - (gmrf_cond_precision^(-1))*
-            (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(chain$params$field[-color_idx] - chain$params$beta_0)))/exp(chain$params$log_scale)
-             -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0))
-          chain$params$field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
+            (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(field[-color_idx]-chain$params$beta_0)))/exp(chain$params$log_scale)
+             -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)*(color_idx<=n_obs))
+          field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
         }
         
         ######################
