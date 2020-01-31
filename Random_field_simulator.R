@@ -137,7 +137,7 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
     chains[[i]]$params$log_noise_variance = sample(log(var(observed_field))-log(seq(1, 50, 1)), 1)
     chains[[i]]$params$log_range = sample(log(max(dist(locs[1:100,])))-log(seq(10, 100, 10)), 1)
     #the field will be smoothed in order to match the randomized covariance parameters
-    chains[[i]]$params$field  = observed_field
+    chains[[i]]$params$field  = c(observed_field, rep(0, nrow(predicted_locs)))
     
     # storing chain results
     chains[[i]]$records$params$beta_0 = rep(0, n_iterations)
@@ -172,9 +172,11 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
         color_idx = which(vecchia_approx$coloring == color)
         #see Rue and Held's manual about GMRF : conditional distribution
         gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)*(color_idx<=n_obs)
+        observed_field_info = (1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)
+        observed_field_info[is.na(observed_field_info)] = 0
         gmrf_cond_mean = chain$params$beta_0 - (gmrf_cond_precision^(-1))*
           (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(field[-color_idx]-chain$params$beta_0)))/exp(chain$params$log_scale)
-           -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)*(color_idx<=n_obs))
+           - observed_field_info)
         field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
       }
     }
@@ -198,7 +200,7 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
   #################
   # MCMC SAMPLING #
   #################
-  
+ 
   while(iter<n_iterations)
   {
     print(iter)
@@ -352,13 +354,18 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
         #########
         for (color in unique(vecchia_approx$coloring))
         {
-          color_idx = which(vecchia_approx$coloring == color)
-          #see Rue and Held's manual about GMRF : conditional distribution
-          gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)*(color_idx<=n_obs)
-          gmrf_cond_mean = chain$params$beta_0 - (gmrf_cond_precision^(-1))*
-            (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(field[-color_idx]-chain$params$beta_0)))/exp(chain$params$log_scale)
-             -(1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)*(color_idx<=n_obs))
-          field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
+          for (color in unique(vecchia_approx$coloring))
+          {
+            color_idx = which(vecchia_approx$coloring == color)
+            #see Rue and Held's manual about GMRF : conditional distribution
+            gmrf_cond_precision = sparse_precision_diag[color_idx]/exp(chain$params$log_scale)+1/exp(chain$params$log_noise_variance)*(color_idx<=n_obs)
+            observed_field_info = (1/exp(chain$params$log_noise_variance))*(observed_field[color_idx]-chain$params$beta_0)
+            observed_field_info[is.na(observed_field_info)] = 0
+            gmrf_cond_mean = chain$params$beta_0 - (gmrf_cond_precision^(-1))*
+              (as.vector(Matrix::t(sparse_chol[,color_idx])%*%(sparse_chol[,-color_idx]%*%(chain$param$field[-color_idx]-chain$params$beta_0)))/exp(chain$params$log_scale)
+               - observed_field_info)
+            chain$params$field[color_idx] = rnorm(length(color_idx), gmrf_cond_mean, 1/sqrt(gmrf_cond_precision))
+          }
         }
         
         ######################
@@ -522,7 +529,7 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
     if(iter / n_join == 10) saveRDS(chains, "Veccchia_run_chains.RDS")
     if((MPSRF<convergence_break[1])|all(Individual_PSRF<convergence_break[2]))break
   }
-  
+ 
   return(list("chains" = chains, "estimates" = estimates, "locs_sample" = locs_sample))
   
 }
