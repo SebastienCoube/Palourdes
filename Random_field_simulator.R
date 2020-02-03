@@ -1,3 +1,32 @@
+############################
+#Chargement des données...#
+##########################
+##... de campagne palourde 2018
+data_palourdes <- read.table("fichier global palourde 2003 a maintenant.txt", header = TRUE)
+data_palourdes<-data_palourdes[which(data_palourdes$Annee == "2018"),c(1,2,6:8)]
+colnames(data_palourdes) = c("X","Y", "g_0.25m2", "point", "Annee")
+
+##... des strates (en shapefile)
+require(sf)
+bassin <- read_sf("./bassin entier/bassin entier.shp")
+plot(bassin)
+
+# On découpe le shapefile en une grille de cellules de 10*10. comme on est en projection L93, 
+# ca représente à peu près des carrés de 10*10m
+
+# attention c'est long à tourner (2-3 min)
+grid <- bassin %>% 
+  st_make_grid(cellsize = 10, what = "centers") %>% 
+  st_intersection(bassin)       
+
+#ca aussi - et en plus c'est moche!
+plot(grid) 
+
+
+
+
+
+
 ####################
 # fit_vecchia_mcmc #
 ####################
