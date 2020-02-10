@@ -6,28 +6,32 @@ library(raster)
 data_palourdes <- read.table("fichier global palourde 2003 a maintenant.txt", header = TRUE)
 data_palourdes<-data_palourdes[which(data_palourdes$Annee == "2018"),c(1,2,6:8)]
 colnames(data_palourdes) = c("X","Y", "g_0.25m2", "point", "Annee")
-coordinates(data_palourdes) <- ~X+Y
+donnesxyz<-data_palourdes[,1:3]
+
+
+#coordinates(data_palourdes) <- ~X+Y
 
 ##... des strates (en shapefile)
 require(rgdal)
 bassin <- readOGR("./bassin entier/bassin entier.shp")
 bassin <- spTransform(bassin, CRS("+init=epsg:2154")) #lambert 93
-plot(bassin)
+
 
 # On découpe le shapefile en une grille vide de cellules de 50*50. Comme on est en projection L93, 
 # ca représente à peu près des carrés de 50*50m
 
-bassin_grid <- raster(extent(bassin), resolution = c(50,50), crs = proj4string(bassin))
+bassin_grid <- expand.grid(latcoords = seq(from = 366774.4, to = 380174.4, by = 50),
+            lngcoords = seq(from = 6402304.4, to = 6415554.4, by = 50))
 
-#çà c'est long (environ 5 minutes)
-bassin_grid <- rasterToPolygons(bassin_grid)
+grid.pts<-SpatialPointsDataFrame(coords= bassin_grid, data=bassin_grid, proj4string = CRS("+init=epsg:2154"))
+
+plot(grid.pts[bassin,])
+
+coord_bassin <- grid.pts[bassin,]@coords
 
 
-bassin_grid <- raster::intersect(bassin_grid, bassin)
-plot(bassin_grid)
-
-## Pour résumer : bassin_grid = la grille où il faut faire le random field
-## data_palourdes = données ponctuelles à partir desquelles il faut faire le random field.
+## Pour résumer : coord_bassin = la matrice pour l'interpolation 
+## donnesxyz = données ponctuelles à partir desquelles il faut faire le random field.
 
 ####################
 # fit_vecchia_mcmc #
