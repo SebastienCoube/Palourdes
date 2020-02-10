@@ -129,7 +129,7 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
     chains[[i]]$idx = i
     chains[[i]]$transition_kernel_sd = list()
     chains[[i]]$transition_kernel_sd$covariance_params = .02
-    chains[[i]]$transition_kernel_sd$log_noise_variance = .02
+    chains[[i]]$transition_kernel_sd$log_noise_variance = .1
     chains[[i]]$transition_kernel_sd$beta_0 = .05
     
     #starting points for covariance parameters
@@ -531,7 +531,7 @@ fit_mcmc_Vecchia = function(observed_locs, predicted_locs, observed_field,
     if((MPSRF<convergence_break[1])|all(Individual_PSRF<convergence_break[2]))break
   }
  
-  return(list("chains" = chains, "estimates" = estimates, "locs_sample" = locs_sample))
+  return(list("chains" = chains, "estimates" = estimates, "locs_sample" = list("obs" = locs_sample_obs, "pred" = locs_sample_pred)))
   
 }
 
