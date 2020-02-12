@@ -3,13 +3,13 @@ remove(list = ls())
 n = 200
 # covariance parameters
 log_range = 0
-log_scale = 10
-log_noise_variance = 8
-beta_0 = 1
+log_scale = -4
+log_noise_variance = -5
+beta_0 = 1000
 # observed locations
 observed_locs = cbind(30*runif(n), 1)
 # locatons to be predicted
-predicted_locs = cbind(seq(0, 30, 0.01), 1)
+predicted_locs = cbind(seq(0, 30, 0.001), 1)
 # field simulation
 true_field = beta_0 + exp(log_scale/2)*t(chol(GpGp::matern_isotropic(c(1, exp(log_range), 1, 0), observed_locs)))%*%rnorm(n) 
 observed_field = true_field + sqrt(exp(log_noise_variance))*rnorm(n)
@@ -52,11 +52,12 @@ cond_mean = beta_0 - Matrix::solve(Q_AA,
                                    - exp(-log_noise_variance)*
                                      (c(observed_field-beta_0, rep(0, n_simulated-n_obs))))
 # Getting Choleky factor of a posteriori precision matrix
-C0 = Matrix::Cholesky(Q_AA, perm = F)
+C0 = Matrix::Cholesky(Q_AA, perm = T)
 expanded = Matrix::expand(C0)
 
 # making one simulation of the denoised field
 denoised_field = as.vector( cond_mean + Matrix::solve(Matrix::crossprod(expanded$L, expanded$P),  rnorm(n_simulated)) ) 
+
 # making one simulation of the response field
 response_field = denoised_field + rnorm(n_simulated, 0, exp(log_noise_variance/2))
 
